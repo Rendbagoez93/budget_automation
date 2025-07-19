@@ -1,2 +1,3 @@
-# students_data
-A code that contains a script to process students data
+# budget_automation
+A script to make a budget plan in IDR, USD, EUR, or JPY. 
+Calculate total budget automatically and percentage it
