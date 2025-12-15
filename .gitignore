@@ -49,12 +49,14 @@ cover/
 
 # Virtual environments
 .env
-.venv
+.venv/
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
+
+# Python version manager
 .python-version
 
 # IDEs
@@ -74,17 +76,21 @@ ehthumbs.db
 Thumbs.db
 
 # Project specific
-# Keep example files but ignore actual budget data
+# Output directory - generated budget files
 output/*.csv
+output/*.xlsx
+output/*.txt
+output/*.json
+output/*_APPROVED_*
+output/*_APPROVAL_*
+output/*_report_*
 output/approval_log.json
-output/approval_report_*.txt
-output/*_APPROVED_*.csv
-output/*_APPROVAL_SUMMARY_*.txt
 
-# Keep the output directory but ignore contents except examples
+# Keep the output directory structure and examples
 !output/
-!output/example_budget.csv
 !output/README.md
+!output/example_budget.csv
+!output/coba.csv
 
 # Logs
 *.log
@@ -118,14 +124,14 @@ docs/_build/
 # Jupyter Notebook
 .ipynb_checkpoints
 
-# pyenv
-.python-version
+# pyenv (already covered above)
+# .python-version
 
 # pipenv
 Pipfile.lock
 
-# UV lock file (keep it for dependency management)
-# uv.lock
+# UV lock file - keep for dependency management
+# uv.lock is tracked for reproducible builds
 
 # MacOS
 .DS_Store

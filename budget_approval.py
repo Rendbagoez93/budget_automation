@@ -551,38 +551,146 @@ class BudgetApprovalSystem:
 
     def save_approved_budget(self, original_file_path: str, approved_df: pd.DataFrame, notes: str):
         """
-        Save the approved budget with modifications to a new file
+        Save the approved budget with modifications to both CSV and Excel with neat column titles
         """
-        # Generate approved budget filename
+        # Generate approved budget filename base
         base_name = os.path.splitext(os.path.basename(original_file_path))[0]
-        approved_filename = f"{base_name}_APPROVED_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-        approved_file_path = os.path.join(self.output_dir, approved_filename)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         
-        # Update formatted amounts for the approved budget
-        # Extract currency from the original formatted amount (basic approach)
-        if len(approved_df) > 0:
+        # Extract currency from the original formatted amount
+        currency_symbol = ""
+        if len(approved_df) > 0 and 'Formatted Amount' in approved_df.columns:
             original_formatted = approved_df.iloc[0]['Formatted Amount']
             currency_symbol = ''.join([c for c in original_formatted if not c.isdigit() and c not in '.,'])
             
+            # Update formatted amounts
             approved_df['Formatted Amount'] = approved_df['Amount'].apply(
                 lambda x: f"{currency_symbol}{x:,.0f}" if currency_symbol else f"{x:,.0f}"
             )
         
-        # Save approved budget
-        approved_df.to_csv(approved_file_path, index=False, 
+        # 1. Save CSV version
+        approved_csv_filename = f"{base_name}_APPROVED_{timestamp}.csv"
+        approved_csv_path = os.path.join(self.output_dir, approved_csv_filename)
+        approved_df.to_csv(approved_csv_path, index=False, 
                           columns=['Category', 'Name', 'Formatted Amount', 'Percentage'])
+        print(f"\n✅ Approved budget (CSV) saved to: '{approved_csv_path}'")
         
-        print(f"\n✅ Approved budget saved to: '{approved_file_path}'")
+        # 2. Save Excel version with professional formatting
+        try:
+            approved_excel_filename = f"{base_name}_APPROVED_REPORT_{timestamp}.xlsx"
+            approved_excel_path = os.path.join(self.output_dir, approved_excel_filename)
+            
+            # Create neat column mapping for professional reports
+            column_mapping = {
+                'Category': 'Budget Category',
+                'Name': 'Item Description',
+                'Formatted Amount': f'Approved Amount',
+                'Percentage': 'Percentage (%)',
+                'Original_Amount': 'Original Amount (Numeric)'
+            }
+            
+            # Prepare export dataframe
+            export_cols = ['Category', 'Name', 'Formatted Amount', 'Percentage']
+            if 'Original_Amount' in approved_df.columns:
+                # Add comparison column if there were modifications
+                approved_df['Change'] = approved_df['Amount'] - approved_df['Original_Amount'].fillna(approved_df['Amount'])
+                approved_df['Change_Formatted'] = approved_df['Change'].apply(
+                    lambda x: f"{'+' if x > 0 else ''}{currency_symbol}{x:,.0f}" if x != 0 else "-"
+                )
+                export_cols.extend(['Change_Formatted'])
+                column_mapping['Change_Formatted'] = 'Amount Change'
+            
+            df_export = approved_df[export_cols].copy()
+            df_export = df_export.rename(columns=column_mapping)
+            
+            # Export with formatting using openpyxl
+            with pd.ExcelWriter(approved_excel_path, engine='openpyxl') as writer:
+                df_export.to_excel(writer, sheet_name='Approved Budget', index=False)
+                
+                # Get workbook and worksheet for formatting
+                workbook = writer.book
+                worksheet = writer.sheets['Approved Budget']
+                
+                # Import styling modules
+                from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+                
+                # Header formatting
+                header_fill = PatternFill(start_color='366092', end_color='366092', fill_type='solid')
+                header_font = Font(bold=True, color='FFFFFF', size=11)
+                
+                for col_idx, col in enumerate(df_export.columns, 1):
+                    # Format header
+                    cell = worksheet.cell(row=1, column=col_idx)
+                    cell.fill = header_fill
+                    cell.font = header_font
+                    cell.alignment = Alignment(horizontal='center', vertical='center')
+                    
+                    # Auto-adjust column width
+                    max_length = max(
+                        df_export[col].astype(str).apply(len).max(),
+                        len(col)
+                    ) + 2
+                    column_letter = cell.column_letter
+                    worksheet.column_dimensions[column_letter].width = min(max_length, 50)
+                
+                # Add borders to all cells
+                thin_border = Border(
+                    left=Side(style='thin'),
+                    right=Side(style='thin'),
+                    top=Side(style='thin'),
+                    bottom=Side(style='thin')
+                )
+                
+                for row in worksheet.iter_rows(min_row=1, max_row=len(df_export)+1, 
+                                              min_col=1, max_col=len(df_export.columns)):
+                    for cell in row:
+                        cell.border = thin_border
+                        if cell.row > 1:  # Data rows
+                            cell.alignment = Alignment(horizontal='left', vertical='center')
+                
+                # Add summary information at the bottom
+                summary_row = len(df_export) + 3
+                worksheet.cell(row=summary_row, column=1, value="Approval Summary")
+                worksheet.cell(row=summary_row, column=1).font = Font(bold=True, size=12)
+                
+                worksheet.cell(row=summary_row+1, column=1, value="Total Approved Amount:")
+                worksheet.cell(row=summary_row+1, column=2, 
+                             value=f"{currency_symbol}{self.calculate_total_amount(approved_df):,.0f}")
+                
+                worksheet.cell(row=summary_row+2, column=1, value="Approval Date:")
+                worksheet.cell(row=summary_row+2, column=2, 
+                             value=datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+                
+                if 'Original_Amount' in approved_df.columns:
+                    original_total = approved_df['Original_Amount'].fillna(approved_df['Amount']).sum()
+                    approved_total = self.calculate_total_amount(approved_df)
+                    change = approved_total - original_total
+                    
+                    worksheet.cell(row=summary_row+3, column=1, value="Original Amount:")
+                    worksheet.cell(row=summary_row+3, column=2, 
+                                 value=f"{currency_symbol}{original_total:,.0f}")
+                    
+                    worksheet.cell(row=summary_row+4, column=1, value="Net Change:")
+                    worksheet.cell(row=summary_row+4, column=2, 
+                                 value=f"{'+' if change > 0 else ''}{currency_symbol}{change:,.0f}")
+            
+            print(f"✅ Approved budget (Excel Report) saved to: '{approved_excel_path}'")
+            print(f"   Format: Professional report with neat column titles and formatting")
+            
+        except ImportError:
+            print("\n⚠️ openpyxl not installed. Excel export skipped. Install with: pip install openpyxl")
+        except Exception as e:
+            print(f"\n⚠️ Excel export failed: {str(e)}. CSV version is available.")
         
-        # Save approval summary
-        summary_filename = f"{base_name}_APPROVAL_SUMMARY_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        # 3. Save approval summary (text file)
+        summary_filename = f"{base_name}_APPROVAL_SUMMARY_{timestamp}.txt"
         summary_file_path = os.path.join(self.output_dir, summary_filename)
         
         with open(summary_file_path, 'w') as f:
             f.write("BUDGET APPROVAL SUMMARY\n")
             f.write("=" * 50 + "\n\n")
             f.write(f"Original File: {original_file_path}\n")
-            f.write(f"Approved File: {approved_file_path}\n")
+            f.write(f"Approved CSV: {approved_csv_path}\n")
             f.write(f"Approval Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write(f"Total Approved Amount: {self.calculate_total_amount(approved_df):,.0f}\n\n")
             f.write(f"Approval Notes: {notes}\n\n")
